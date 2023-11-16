@@ -1,26 +1,33 @@
-import xml.etree.ElementTree as ET
-import random
+import argparse
 import os
+import random
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
+from glob import glob
 
-# if the model does not reach a solution, try a different seed!
-random.seed(134)
+parser = argparse.ArgumentParser()
+parser.add_argument('--tables', type=int, default=24, help='Number of tables')
+parser.add_argument('--table-capacity', type=int, default=10, help='Individual table capacity')
+parser.add_argument('--maximum-known-participants', type=int, default=1, help='Maximum number of participants from the initial table')
+parser.add_argument('--seed', type=int, default=124, help='Seed to use for the pseudo-random number generator')
+args = parser.parse_args()
 
-N = 110 # number of participants
-T = 10  # number of tables
+T = args.tables  # number of tables
+TC = args.table_capacity # table capacity
+# limit the number of initial participants sharing the same table after shuffling
+MKP  = args.maximum_known_participants
+
 K = 7   # sequence length
 
-# table capacity
-TS = [12 for _ in range(T)]
-TS[4] = 5
+# maximum number of attempts for reassigning a participant
+MAX_ATTEMPTS = 100
 
-# limit the number of initial participants sharing the same table after shuffling
-MOP  = 2
+# if the model does not reach a solution, try a different seed!
+random.seed(args.seed)
 
-assert N % 2 == 0, "There must be an even number of participants"
-assert N <= sum(TS), "There's not enough tables to seat everyone"
-assert all(t <= 12 for t in TS), "Table must have at"
+assert T * TC % 2 == 0, "There must be an even number of seats"
+assert TC <= 12, "The table capacity must be at most 12"
 
 base = 'ATCG'
 complement = 'TAGC'
@@ -58,65 +65,62 @@ if os.path.isdir('cards'):
 
 with open('seats.tsv', 'w') as f:
     f.write('participant_id\tinitial_table_id\ttable_id\tsequence\n')
-    for n in range(0, N, 2):
-        seq = ''.join([base[random.randint(0, 3)] for b in range(K)])
+    for n in range(0, T * TC):
+        if n % 2 == 0:
+            seq = ''.join([base[random.randint(0, len(base) - 1)] for b in range(K)])
+            not_this_initial_table = None
+            not_this_table = None
+        else:
+            # from the previous iteration
+            seq = ''.join([complement[base.index(s)] for s in reversed(seq)])
+            # make sure that two matching participants are not sitting at the same table
+            # initially
+            not_this_initial_table = initial_table
+            # nor once moving
+            not_this_table = table
 
+        # select the initial table
+        attempts = 0
         initial_table = random.randint(0, T - 1)
-        while len(initial_tables[initial_table]) >= TS[initial_table]:
-            print(f'Table {initial_table+1} is full, reassigning participant {n+1}...')
-            initial_table = random.randint(0, T - 1)
-        initial_tables[initial_table].append(n)
-
-        # ensure that he moves!
-        table = random.randint(0, T - 1)
-        while table == initial_table or len(tables[table]) >= TS[table] or sum(c in tables[table] for c in initial_tables[initial_table]) >= MOP:
-            if len(tables[table]) >= TS[table]:
-                print(f'Table {table+1} is full, reassigning participant {n+1}...')
-            if table == initial_table:
-                print(f'Sorry mate, you have to move!')
-            table = random.randint(0, T - 1)
-        tables[table].append(n)
-
-        tree = generate_card(n, initial_table, table, seq)
-        os.makedirs('cards/Table #'+str(initial_table+1), exist_ok=True)
-        tree.write('cards/Table #'+str(initial_table+1)+'/Participant #'+str(n+1)+'.svg')
-        f.write(f'{n+1}\t{initial_table+1}\t{table+1}\t{seq}\n')
-
-        n += 1
-
-        # make sure that two participants are not sitting at the same table
-        # initially
-        not_this_initial_table = initial_table
-        initial_table = random.randint(0, T - 1)
-        while len(initial_tables[initial_table]) >= TS[initial_table] or initial_table == not_this_initial_table:
-            if len(initial_tables[initial_table]) >= TS[initial_table]:
-                print(f'Table {initial_table+1} is full, reassigning participant {n+1}...')
+        while len(initial_tables[initial_table]) >= TC or initial_table == not_this_initial_table:
+            assert attempts <= MAX_ATTEMPTS, f"There's been 10 attempts to assign participant #{n+1}, giving up! You may try another seed or allow more common participants."
+            if len(initial_tables[initial_table]) >= TC:
+                print(f'Table #{initial_table+1} is full, reassigning participant #{n+1}...')
             if initial_table == not_this_initial_table:
-                print(f'Complement of {n+1} is already sitting at this table, reassigning...')
+                print(f'Complement of participant #{n+1} is already sitting at this table, reassigning...')
             initial_table = random.randint(0, T - 1)
+            attempts += 1
         initial_tables[initial_table].append(n)
 
-        # nor once moving
-        not_this_table = table
+        # select the destination table
+        attempts = 0
         table = random.randint(0, T - 1)
-        while table == initial_table or len(tables[table]) >= TS[table] or table == not_this_table or sum(c in tables[table] for c in initial_tables[initial_table]) >= MOP:
-            if len(tables[table]) > TS[table]:
+        while table == initial_table or len(tables[table]) >= TC or table == not_this_table or sum(c in tables[table] for c in initial_tables[initial_table]) >= MKP:
+            assert attempts <= MAX_ATTEMPTS, f"There's been 10 attempts to assign participant #{n+1}, giving up! You may try another seed or allow more common participants."
+            if len(tables[table]) > TC:
                 print(f'Table {table+1} is full, reassigning participant {n+1}...')
             if table == not_this_table:
-                print(f'Complement of {n+1} is already sitting at this table, reassigning...')
+                print(f'Complement of participant #{n+1} is already sitting at this table, reassigning...')
+            if sum(c in tables[table] for c in initial_tables[initial_table]) >= MKP:
+                print(f'Table #{table+1} already has {MKP} participants from table #{initial_table+1}, reassigning participant #{n+1}...')
             table = random.randint(0, T - 1)
+            attempts += 1
+        common_partners = ['#'+str(c+1) for c in initial_tables[initial_table] if c in tables[table]]
+        if common_partners:
+            print(f'Participant #{n+1} will be sitting with {len(common_partners)} known participant(s) from its initial table: ' + ', '.join(common_partners))
         tables[table].append(n)
 
         assert initial_table != not_this_initial_table
         assert table != not_this_table
 
-        seq = ''.join([complement[base.index(s)] for s in reversed(seq)])
         tree = generate_card(n, initial_table, table, seq)
         os.makedirs('cards/Table #'+str(initial_table+1), exist_ok=True)
         tree.write('cards/Table #'+str(initial_table+1)+'/Participant #'+str(n+1)+'.svg')
         f.write(f'{n+1}\t{initial_table+1}\t{table+1}\t{seq}\n')
 
-from glob import glob
+if os.path.isdir('templates'):
+    print('Removing existing templates/ directory...')
+    shutil.rmtree('templates')
 
 # generate printing templates...
 for table in range(T):
