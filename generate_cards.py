@@ -42,11 +42,13 @@ tables = [[] for _ in range(T)]
 
 def generate_card(participant_id, initial_table, table, sequence):
     a = ET.Element('svg', version='1.1', width='3.5in', height='2in', viewBox='0 0 175 100')
-    t = ET.Element('text', x='0', y='8', fill='black', attrib={'font-size': '8', 'font-family': 'Dancing Script'})
+    t = ET.Element('text', x='170', y='10', fill='black', attrib={'text-anchor': 'end', 'font-size': '8', 'font-family': 'Dancing Script'})
+    t.text = str(initial_table + 1)
+    a.append(t)
     t = ET.Element('text', x='50%', y='50%', fill='black',
                    attrib={'text-anchor': 'middle', 'font-family': 'Dancing Script',
-                           'font-size': '18'})
-    t.text = 'Table #' + str(initial_table + 1) + ' → ' + '#' + str(table + 1)
+                           'font-size': '20'})
+    t.text = '#' + str(table + 1)
     a.append(t)
     for i in range(K):
         offset = 0 + (i * 25)
