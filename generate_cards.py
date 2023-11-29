@@ -134,8 +134,12 @@ for table in range(T):
         r.attrib['y'] = str(i // 3 * 2 + 0.25) + 'in'
         root.append(r)
     # add some cutting guides
-    root.append(ET.Element('line', x1='3.75in', y1='0.25in', x2='3.75in', y2='8.25in', stroke='black'))
-    root.append(ET.Element('line', x1='7.25in', y1='0.25in', x2='7.25in', y2='8.25in', stroke='black'))
+    # vertical
+    for i in range(4):
+        root.append(ET.Element('line', x1=str(0.25 + i * 3.5) + 'in', y1='0.25in', x2=str(0.25 + i * 3.5) + 'in', y2='8.25in', stroke='black', attrib={'stroke-width': '.01'}))
+    # horizontal
+    for i in range(5):
+        root.append(ET.Element('line', x1='0.25in', y1=str(0.25 + i * 2) + 'in', x2='10.75in', y2=str(0.25 + i * 2) + 'in', stroke='black', attrib={'stroke-width': '.01'}))
     tree = ET.ElementTree(root)
     os.makedirs('templates', exist_ok=True)
     tree.write('templates/Table #'+str(table+1)+'.svg')
