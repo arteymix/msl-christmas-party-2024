@@ -1,13 +1,20 @@
-# msl-holiday-party-2023
+# msl-holiday-party-2024
 
 ## Rules of the game
 
-Throughout the event, your goal is to encounter your reverse complement. When you find it, the two of you may claim a prize.
+Participants will each be given a card containing two sequences: a messenger
+RNA and a protein. On the back of the card is a reminder of biology 101 with a 
+translation diagram.
 
-A quick reminder of biology 101: A goes with T, C goes with G. The reverse complement of ATCG is CGAT.
+Throughout the event, your goal is to encounter your protein and your coding
+sequence. Upon finding a partner, write his/her number on the corresponding
+slot of your card. When you find them both, you may claim a prize!
 
-If you move to another table, take the card with you.
+The card is yours, so carry it throughout the event.
 
-If a table has unallocated cards, some players from that table are allowed to have two or more cards.
+If a table has unallocated cards, some players from that table are allowed to 
+have two or more cards.
 
-If you have two or more cards, you may choose any card when changing seat during the shuffling.
+The number on the card is also used for shuffling participants around. If you
+have two or more cards, you may choose any card when changing seat during the
+shuffling.

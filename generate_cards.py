@@ -4,144 +4,182 @@ import random
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-from glob import glob
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--tables', type=int, default=24, help='Number of tables')
-parser.add_argument('--table-capacity', type=int, default=10, help='Individual table capacity')
-parser.add_argument('--maximum-known-participants', type=int, default=1, help='Maximum number of participants from the initial table')
-parser.add_argument('--seed', type=int, default=124, help='Seed to use for the pseudo-random number generator')
-args = parser.parse_args()
-
-T = args.tables  # number of tables
-TC = args.table_capacity # table capacity
-# limit the number of initial participants sharing the same table after shuffling
-MKP  = args.maximum_known_participants
-
-K = 7   # sequence length
-
-# maximum number of attempts for reassigning a participant
-MAX_ATTEMPTS = 100
-
-# if the model does not reach a solution, try a different seed!
-random.seed(args.seed)
-
-assert T * TC % 2 == 0, "There must be an even number of seats"
-assert TC <= 12, "The table capacity must be at most 12"
-
-base = 'ATCG'
-complement = 'TAGC'
+from Bio.Seq import Seq
 
 background = ['#E5ECE9', '#5D737E', '#0D3B66']
 
-# green, red, orange, blue, background, font
-palette = ['#7FB800', '#A63D40', '#F19A3E', '#008FCC']
+# A = green, U = red, C = orange, G = blue
+coding_sequence_palette = ['#7FB800', '#A63D40', '#F19A3E', '#008FCC']
 
-initial_tables = [[] for _ in range(T)]
-tables = [[] for _ in range(T)]
+# provided by https://supercolorpalette.com/
+# ACDEFGHIKLMNPQRSTVWY
+protein_sequence_palette = [
+    '#FFDA1F',
+    '#FBAC23',
+    '#F68128',
+    '#F25A2C',
+    '#ED3731',
+    '#E93550',
+    '#E43A75',
+    '#E03E97',
+    '#DB43B5',
+    '#D747CF',
+    '#BE4BD2',
+    '#A250CE',
+    '#8954C9',
+    '#7459C5',
+    '#625DC0',
+    '#626FBC',
+    '#6683B7',
+    '#6B92B3',
+    '#6F9FAE',
+    '#74A7AA'
+]
 
-def generate_card(participant_id, initial_table, table, sequence):
+base = 'AUCG'
+amino_acids = 'ACDEFGHIKLMNPQRSTVWY'
+
+print(len(amino_acids))
+
+sequence_length = 7
+
+start_codon = 'AUG'
+# keys are regex matching codons, values are amino acids
+codons = ['']
+
+
+def generate_coding_sequence():
+    # starting sequence
+    s = start_codon
+    for i in range(sequence_length - 1):
+        while True:
+            codon = ''.join(base[random.randint(0, 3)] for _ in range(3))
+            # ignore starting and stop codons
+            if Seq(codon).translate() not in ['M', '*']:
+                break
+        s += codon
+    return s
+
+
+def generate_card(participant_id, table, coding_sequence, protein_sequence):
     a = ET.Element('svg', version='1.1', width='3.5in', height='2in', viewBox='0 0 175 100')
-    t = ET.Element('text', x='170', y='10', fill='black', attrib={'text-anchor': 'end', 'font-size': '8', 'font-family': 'Dancing Script'})
-    t.text = str(initial_table + 1)
-    a.append(t)
-    t = ET.Element('text', x='50%', y='50%', fill='black',
-                   attrib={'text-anchor': 'middle', 'font-family': 'Dancing Script',
-                           'font-size': '20'})
-    t.text = '#' + str(table + 1)
-    a.append(t)
-    for i in range(K):
-        offset = 0 + (i * 25)
-        r = ET.Element('rect', x=str(offset), y='75', width='25',
-                            height='25', fill=palette[base.index(sequence[i])])
-        t = ET.Element('text', x=str(offset + 12.5), y='91', fill='white',
-                       attrib={'text-anchor': 'middle', 'font-family': 'Courier Prime'})
-        t.text = sequence[i]
-        a.append(r)
-        a.append(t)
+    t = ET.SubElement(a, 'text', x='50%', y='50%', fill='black',
+                      attrib={'text-anchor': 'middle', 'font-family': 'Dancing Script',
+                              'font-size': '20'})
+    t.text = 'Table #' + str(table + 1)
+
+    # participant ID
+    t = ET.SubElement(a, 'text', x='50%', y=str(100 / 2 + 20), fill='black',
+                      attrib={'text-anchor': 'middle', 'font-family': 'Dancing Script',
+                              'font-size': '10'})
+    t.text = 'Your ID is #' + str(participant_id + 1)
+
+    # protein sequence at top
+    for i, aa in enumerate(protein_sequence):
+        w = 175 / len(protein_sequence)
+        offset = 0 + (i * w)
+        r = ET.SubElement(a, 'rect', x=str(offset), y='0', width=str(w),
+                          height=str(w), fill=protein_sequence_palette[amino_acids.index(aa)])
+        t = ET.SubElement(a, 'text', x=str(offset + (w / 2)), y=str(w / 2 + 8), fill='white',
+                          attrib={'text-anchor': 'middle', 'font-family': 'Courier Prime', 'font-size': '22'})
+        t.text = aa
+
+    # codon sequence at bottom
+    for i, b in enumerate(coding_sequence):
+        w = 175 / len(coding_sequence)
+        offset = 0 + (i * w)
+        ET.SubElement(a, 'rect', x=str(offset), y=str(100 - w), width=str(w),
+                      height=str(w), fill=coding_sequence_palette[base.index(b)])
+        t = ET.SubElement(a, 'text', x=str(offset + (w / 2)), y=str(100 - w / 2 + 3), fill='white',
+                          attrib={'text-anchor': 'middle', 'font-family': 'Courier Prime', 'font-size': '8'})
+        t.text = b
     return ET.ElementTree(a)
 
-if os.path.isdir('cards'):
-    print('Removing existing cards/ directory...')
-    shutil.rmtree('cards')
 
-with open('seats.tsv', 'w') as f:
-    f.write('participant_id\tinitial_table_id\ttable_id\tsequence\n')
-    for n in range(0, T * TC):
-        if n % 2 == 0:
-            seq = ''.join([base[random.randint(0, len(base) - 1)] for b in range(K)])
-            not_this_initial_table = None
-            not_this_table = None
-        else:
-            # from the previous iteration
-            seq = ''.join([complement[base.index(s)] for s in reversed(seq)])
-            # make sure that two matching participants are not sitting at the same table
-            # initially
-            not_this_initial_table = initial_table
-            # nor once moving
-            not_this_table = table
+def generate_participant_master_list(participant_ids, table_ids, N):
+    with open('seats.tsv', 'w') as f:
+        f.write('participant_id\ttable_id\tpartner_1_id\tpartner_2_id\n')
+        for i, participant_id in enumerate(participant_ids):
+            f.write(
+                f'{participant_id + 1}\t{table_ids[i] + 1}\t{participant_ids[(i - 1) % N] + 1}\t{participant_ids[(i + 1) % N] + 1}\n')
 
-        # select the initial table
-        attempts = 0
-        initial_table = random.randint(0, T - 1)
-        while len(initial_tables[initial_table]) >= TC or initial_table == not_this_initial_table:
-            assert attempts <= MAX_ATTEMPTS, f"There's been 10 attempts to assign participant #{n+1}, giving up! You may try another seed or allow more common participants."
-            if len(initial_tables[initial_table]) >= TC:
-                print(f'Table #{initial_table+1} is full, reassigning participant #{n+1}...')
-            if initial_table == not_this_initial_table:
-                print(f'Complement of participant #{n+1} is already sitting at this table, reassigning...')
-            initial_table = random.randint(0, T - 1)
-            attempts += 1
-        initial_tables[initial_table].append(n)
 
-        # select the destination table
-        attempts = 0
-        table = random.randint(0, T - 1)
-        while table == initial_table or len(tables[table]) >= TC or table == not_this_table or sum(c in tables[table] for c in initial_tables[initial_table]) >= MKP:
-            assert attempts <= MAX_ATTEMPTS, f"There's been 10 attempts to assign participant #{n+1}, giving up! You may try another seed or allow more common participants."
-            if len(tables[table]) > TC:
-                print(f'Table {table+1} is full, reassigning participant {n+1}...')
-            if table == not_this_table:
-                print(f'Complement of participant #{n+1} is already sitting at this table, reassigning...')
-            if sum(c in tables[table] for c in initial_tables[initial_table]) >= MKP:
-                print(f'Table #{table+1} already has {MKP} participants from table #{initial_table+1}, reassigning participant #{n+1}...')
-            table = random.randint(0, T - 1)
-            attempts += 1
-        common_partners = ['#'+str(c+1) for c in initial_tables[initial_table] if c in tables[table]]
-        if common_partners:
-            print(f'Participant #{n+1} will be sitting with {len(common_partners)} known participant(s) from its initial table: ' + ', '.join(common_partners))
-        tables[table].append(n)
+def generate_cards(participant_ids, table_ids, coding_sequences, protein_sequences):
+    # if os.path.isdir('cards'):
+    #     print('Removing existing cards/ directory...')
+    #     shutil.rmtree('cards')
+    # os.mkdir('cards')
+    for participant_id, table_id, coding_sequence, protein_sequence in zip(participant_ids, table_ids, coding_sequences,
+                                                                           protein_sequences):
+        tree = generate_card(participant_id, table_id, coding_sequence, protein_sequence)
+        tree.write('cards/Participant #' + str(participant_id + 1) + '.svg')
 
-        assert initial_table != not_this_initial_table
-        assert table != not_this_table
 
-        tree = generate_card(n, initial_table, table, seq)
-        os.makedirs('cards/Table #'+str(initial_table+1), exist_ok=True)
-        tree.write('cards/Table #'+str(initial_table+1)+'/Participant #'+str(n+1)+'.svg')
-        f.write(f'{n+1}\t{initial_table+1}\t{table+1}\t{seq}\n')
+def generate_printing_templates(participant_ids):
+    if os.path.isdir('templates'):
+        print('Removing existing templates/ directory...')
+        shutil.rmtree('templates')
+    os.mkdir('templates')
 
-if os.path.isdir('templates'):
-    print('Removing existing templates/ directory...')
-    shutil.rmtree('templates')
+    # generate printing templates...
+    for template_id in range(0, len(participant_ids), 4 * 5):
+        root = ET.Element('svg', version='1.1', height='8.5in', width='11in')
+        for i, participant in enumerate(participant_ids[template_id:template_id + (4 * 5)]):
+            c = ET.parse('cards/' + 'Participant #' + str(participant + 1) + ".svg")
+            r = c.getroot()
+            r.attrib['x'] = str(i % 3 * 3.5 + 0.25) + 'in'
+            r.attrib['y'] = str(i // 3 * 2 + 0.25) + 'in'
+            root.append(r)
+        # add some cutting guides
+        # vertical
+        for i in range(4):
+            root.append(
+                ET.Element('line', x1=str(0.25 + i * 3.5) + 'in', y1='0.25in', x2=str(0.25 + i * 3.5) + 'in',
+                           y2='8.25in', stroke='black', attrib={'stroke-width': '.01'}))
+        # horizontal
+        for i in range(5):
+            root.append(
+                ET.Element('line', x1='0.25in', y1=str(0.25 + i * 2) + 'in', x2='10.75in',
+                           y2=str(0.25 + i * 2) + 'in',
+                           stroke='black', attrib={'stroke-width': '.01'}))
+        tree = ET.ElementTree(root)
+        tree.write('templates/Template #' + str(template_id + 1) + '.svg')
+        subprocess.run(['rsvg-convert', '-f', 'pdf', '--output', 'templates/Template #' + str(template_id + 1) + '.pdf',
+                        'templates/Template #' + str(template_id + 1) + '.svg'])
 
-# generate printing templates...
-for table in range(T):
-    root = ET.Element('svg', version='1.1', height='8.5in', width='11in')
-    for i, participant in enumerate(glob('cards/Table #' + str(table+1) + '/*.svg')):
-        c = ET.parse(participant)
-        r = c.getroot()
-        r.attrib['x'] = str(i % 3 * 3.5 + 0.25) + 'in'
-        r.attrib['y'] = str(i // 3 * 2 + 0.25) + 'in'
-        root.append(r)
-    # add some cutting guides
-    # vertical
-    for i in range(4):
-        root.append(ET.Element('line', x1=str(0.25 + i * 3.5) + 'in', y1='0.25in', x2=str(0.25 + i * 3.5) + 'in', y2='8.25in', stroke='black', attrib={'stroke-width': '.01'}))
-    # horizontal
-    for i in range(5):
-        root.append(ET.Element('line', x1='0.25in', y1=str(0.25 + i * 2) + 'in', x2='10.75in', y2=str(0.25 + i * 2) + 'in', stroke='black', attrib={'stroke-width': '.01'}))
-    tree = ET.ElementTree(root)
-    os.makedirs('templates', exist_ok=True)
-    tree.write('templates/Table #'+str(table+1)+'.svg')
-    subprocess.run(['rsvg-convert', '-f', 'pdf', '--output', 'templates/Table #'+str(table+1)+'.pdf',
-                    'templates/Table #'+str(table+1)+'.svg'])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--tables', type=int, default=24, help='Number of tables')
+    parser.add_argument('--table-capacity', type=int, default=10, help='Individual table capacity')
+    parser.add_argument('--seed', type=int, default=124, help='Seed to use for the pseudo-random number generator')
+    args = parser.parse_args()
+
+    T = args.tables  # number of tables
+    TC = args.table_capacity  # table capacity
+    N = T * TC
+
+    # if the model does not reach a solution, try a different seed!
+    random.seed(args.seed)
+
+    participant_ids = list(range(N))
+    random.shuffle(participant_ids)
+
+    coding_sequences = [generate_coding_sequence() for _ in range(N)]
+    protein_sequences = [Seq(coding_sequences[i - 1]).translate() for i in range(len(coding_sequences))]
+
+    tables = [[] for _ in range(T)]
+    table_ids = []
+    # assign participant to destination tables
+    for i, participant_id in enumerate(participant_ids):
+        while True:
+            table_id = random.randint(0, T - 1)
+            if len(tables[table_id]) < TC:
+                tables[table_id].append(participant_id)
+                table_ids.append(table_id)
+                break
+
+    generate_participant_master_list(participant_ids, table_ids, N)
+    generate_cards(participant_ids, table_ids, coding_sequences, protein_sequences)
+    # generate_printing_templates(participant_ids)
